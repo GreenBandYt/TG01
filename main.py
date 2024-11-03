@@ -65,13 +65,14 @@ def get_weather(city):
 # Создаем инлайн-клавиатуру с кнопками
 inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="Погода", callback_data="weather"), InlineKeyboardButton(text="Установить город", callback_data="set_city")],
-    
+    [InlineKeyboardButton(text="/start", callback_data="start"), InlineKeyboardButton(text="/help", callback_data="help")]
 ])
 
 # Создаем нижнее меню с кнопками
 reply_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True,
     keyboard=[
+        [KeyboardButton(text="Погода"), KeyboardButton(text="Установить город")],
         [KeyboardButton(text="/start"), KeyboardButton(text="/help")]
     ]
 )
@@ -132,6 +133,31 @@ async def city_received(message: Message, state: FSMContext):
 
 async def main():
     await dp.start_polling(bot)
+
+@router.message(lambda message: message.text == "Погода")
+async def handle_weather_command(message: Message):
+    user_id = message.from_user.id
+    city = user_cities.get(user_id, 'Smolensk')
+    weather_data = get_weather(city)
+    if isinstance(weather_data, dict):
+        await message.answer(f"🌆 Город: {weather_data['city_name']}\n"
+                             f"🌡️ Температура: {weather_data['temperature']}°C\n"
+                             f"🤗 Ощущается как: {weather_data['feels_like']}°C\n"
+                             f"☁️ Погодные условия: {weather_data['description']}\n"
+                             f"💨 Скорость ветра: {weather_data['wind_speed']} м/с ({weather_data['wind_speed_kmh']} км/ч)\n"
+                             f"💧 Влажность: {weather_data['humidity']}%\n"
+                             f"🔽 Давление: {weather_data['pressure']} мм рт. ст.\n"
+                             f"🌅 Восход солнца: {weather_data['sunrise']}\n"
+                             f"🌇 Закат солнца: {weather_data['sunset']}")
+    else:
+        await message.answer(weather_data)
+
+@router.message(lambda message: message.text == "Установить город")
+async def handle_set_city_command(message: Message, state: FSMContext):
+    await message.answer("Пожалуйста, введите название города для установки:")
+    await state.set_state(SetCityState.waiting_for_city)
+
+
 
 if __name__ == "__main__":
     asyncio.run(main())
