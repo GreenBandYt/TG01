@@ -1,0 +1,50 @@
+import asyncio
+import requests
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import CommandStart, Command
+from aiogram.types import Message
+from config import TOKEN, GBt_key
+
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
+
+# Функция для получения данных о погоде в Смоленске
+CITY = 'Smolensk'
+
+def get_weather():
+    url = f'http://api.openweathermap.org/data/2.5/weather?q={CITY}&appid={GBt_key}&units=metric&lang=ru'
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        temperature = data['main']['temp']
+        feels_like = data['main']['feels_like']
+        description = data['weather'][0]['description']
+        wind_speed = data['wind']['speed']
+        humidity = data['main']['humidity']
+        return (f"Температура: {temperature}°C\n"
+                f"Ощущается как: {feels_like}°C\n"
+                f"Погодные условия: {description}\n"
+                f"Скорость ветра: {wind_speed} м/с\n"
+                f"Влажность: {humidity}%")
+    else:
+        return f"Не удалось получить данные о погоде. Статус ответа: {response.status_code}"
+
+# Обработчики команд
+@dp.message(Command('help'))
+async def help(message: Message):
+    await message.answer('Этот бот умеет выполнять команды:\n/start - запуск бота\n/help - помощь\n/weather - погода')
+
+@dp.message(CommandStart())
+async def start(message: Message):
+    await message.answer(f"Доброго дня, {message.from_user.full_name}! Хорошей погоды!")
+
+@dp.message(Command('weather'))
+async def weather(message: Message):
+    weather_info = get_weather()
+    await message.answer(weather_info)
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
