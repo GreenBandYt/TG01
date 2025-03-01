@@ -1,5 +1,5 @@
 import asyncio
-import httpx
+import requests
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
@@ -20,47 +20,46 @@ user_cities = {}
 class SetCityState(StatesGroup):
     waiting_for_city = State()
 
-# Функция для получения данных о погоде (асинхронная версия)
-async def get_weather(city):
+# Функция для получения данных о погоде
+def get_weather(city):
     url = f'https://api.openweathermap.org/data/2.5/weather?q={city}&appid={GBt_key}&units=metric&lang=ru'
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=20)
-            if response.status_code == 200:
-                data = response.json()
-                city_name = data['name']
-                temperature = data['main']['temp']
-                feels_like = data['main']['feels_like']
-                description = data['weather'][0]['description']
-                wind_speed = data['wind']['speed']
-                wind_speed_kmh = round(wind_speed * 3.6, 1)
-                humidity = data['main']['humidity']
-                pressure = data['main']['pressure']
-                pressure_mmHg = round(pressure * 0.75006)
-                sunrise = data['sys']['sunrise']
-                sunset = data['sys']['sunset']
+        response = requests.get(url, timeout=20)
+        if response.status_code == 200:
+            data = response.json()
+            city_name = data['name']
+            temperature = data['main']['temp']
+            feels_like = data['main']['feels_like']
+            description = data['weather'][0]['description']
+            wind_speed = data['wind']['speed']
+            wind_speed_kmh = round(wind_speed * 3.6, 1)
+            humidity = data['main']['humidity']
+            pressure = data['main']['pressure']
+            pressure_mmHg = round(pressure * 0.75006)
+            sunrise = data['sys']['sunrise']
+            sunset = data['sys']['sunset']
 
-                from datetime import datetime
-                sunrise_time = datetime.fromtimestamp(sunrise).strftime('%H:%M:%S')
-                sunset_time = datetime.fromtimestamp(sunset).strftime('%H:%M:%S')
+            from datetime import datetime
+            sunrise_time = datetime.fromtimestamp(sunrise).strftime('%H:%M:%S')
+            sunset_time = datetime.fromtimestamp(sunset).strftime('%H:%M:%S')
 
-                return {
-                    "city_name": city_name,
-                    "temperature": temperature,
-                    "feels_like": feels_like,
-                    "description": description,
-                    "wind_speed": wind_speed,
-                    "wind_speed_kmh": wind_speed_kmh,
-                    "humidity": humidity,
-                    "pressure": pressure_mmHg,
-                    "sunrise": sunrise_time,
-                    "sunset": sunset_time
-                }
-            else:
-                return f"Ошибка: не удалось получить данные о погоде для {city} (код {response.status_code})"
-    except httpx.ReadTimeout:
+            return {
+                "city_name": city_name,
+                "temperature": temperature,
+                "feels_like": feels_like,
+                "description": description,
+                "wind_speed": wind_speed,
+                "wind_speed_kmh": wind_speed_kmh,
+                "humidity": humidity,
+                "pressure": pressure_mmHg,
+                "sunrise": sunrise_time,
+                "sunset": sunset_time
+            }
+        else:
+            return f"Ошибка: не удалось получить данные о погоде для {city} (код {response.status_code})"
+    except requests.exceptions.ReadTimeout:
         return "Превышено время ожидания ответа от сервера. Попробуйте позже."
-    except httpx.RequestError as e:
+    except requests.exceptions.RequestException as e:
         return f"Произошла ошибка при запросе данных: {e}"
 
 # Создаем инлайн-клавиатуру с кнопками
@@ -93,12 +92,6 @@ async def help_command(message: Message):
 # Обработчик для callback-запросов
 @router.callback_query()
 async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
-    try:
-        await callback_query.answer(cache_time=0)  # Быстрый ответ для предотвращения таймаутов
-    except aiogram.exceptions.TelegramBadRequest as e:
-        print(f"Ошибка при ответе на callback-запрос: {e}")
-        return
-
     data = callback_query.data
     user_id = callback_query.from_user.id
 
@@ -111,7 +104,7 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
                                             "Нажмите кнопки ниже для взаимодействия.", reply_markup=inline_keyboard)
     elif data == 'weather':
         city = user_cities.get(user_id, 'Smolensk')
-        weather_data = await get_weather(city)
+        weather_data = get_weather(city)
         if isinstance(weather_data, dict):
             await callback_query.message.answer(f"🌆 Город: {weather_data['city_name']}\n"
                                                 f"🌡️ Температура: {weather_data['temperature']}°C\n"
@@ -128,6 +121,8 @@ async def handle_callback(callback_query: CallbackQuery, state: FSMContext):
         await callback_query.message.answer("Пожалуйста, введите название города для установки:", reply_markup=inline_keyboard)
         await state.set_state(SetCityState.waiting_for_city)
 
+    await callback_query.answer()
+
 @router.message(SetCityState.waiting_for_city)
 async def city_received(message: Message, state: FSMContext):
     city = message.text
@@ -136,12 +131,14 @@ async def city_received(message: Message, state: FSMContext):
     await message.answer(f"Город успешно установлен: {city} 🌍", reply_markup=inline_keyboard)
     await state.clear()
 
-# Обработчики сообщений для кнопок ReplyKeyboardMarkup
+async def main():
+    await dp.start_polling(bot)
+
 @router.message(lambda message: message.text == "Погода")
 async def handle_weather_command(message: Message):
     user_id = message.from_user.id
     city = user_cities.get(user_id, 'Smolensk')
-    weather_data = await get_weather(city)
+    weather_data = get_weather(city)
     if isinstance(weather_data, dict):
         await message.answer(f"🌆 Город: {weather_data['city_name']}\n"
                              f"🌡️ Температура: {weather_data['temperature']}°C\n"
@@ -160,8 +157,7 @@ async def handle_set_city_command(message: Message, state: FSMContext):
     await message.answer("Пожалуйста, введите название города для установки:")
     await state.set_state(SetCityState.waiting_for_city)
 
-async def main():
-    await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
